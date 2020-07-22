@@ -4,3 +4,4 @@
 
 *.sqlite
 *.json
+/.vs/neo-contracts/v16/.suo
