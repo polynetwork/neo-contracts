@@ -12,7 +12,7 @@ namespace Nep5Proxy
     public class Nep5ProxyPip1 : SmartContract
     {
         // Constants
-        private static readonly byte[] CCMCScriptHash = "".HexToBytes(); // little endian
+        private static readonly byte[] CCMCScriptHash = "7f25d672e8626d2beaa26f2cb40da6b91f40a382".HexToBytes(); // little endian
 
         // Dynamic Call
         private delegate object DynCall(string method, object[] args); // dynamic call
