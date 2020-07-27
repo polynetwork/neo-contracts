@@ -20,6 +20,7 @@ namespace Nep5Proxy
 
         // Events
         public static event Action<byte[], BigInteger, byte[], byte[]> DelegateAssetEvent;
+        public static event Action<byte[], BigInteger, byte[], byte[]> RegisterAssetEvent;
         public static event Action<byte[], byte[], BigInteger, byte[], byte[], BigInteger, byte[]> LockEvent;
         public static event Action<byte[], byte[], BigInteger> UnlockEvent;
 
@@ -34,7 +35,7 @@ namespace Nep5Proxy
                 if (method == "getAssetBalance")
                     return GetAssetBalance((byte[])args[0]);
                 if (method == "getLockedBalance")
-                    return GetLockedBalance((BigInteger)args[0], (byte[])args[1], (byte[])args[2], (byte[])args[3]);
+                    return GetLockedBalance((byte[])args[0], (BigInteger)args[1], (byte[])args[2], (byte[])args[3]);
                 if (method == "delegateAsset")
                     return DelegateAsset((BigInteger)args[0], (byte[])args[1], (byte[])args[2], (BigInteger)args[3], callscript);
                 if (method == "registerAsset")
@@ -54,7 +55,7 @@ namespace Nep5Proxy
         }
 
         [DisplayName("getLockedBalance")]
-        public static BigInteger GetLockedBalance(BigInteger nativeChainId, byte[] nativeLockProxy, byte[] nativeAssetHash, byte[] assetHash)
+        public static BigInteger GetLockedBalance(byte[] assetHash, BigInteger nativeChainId, byte[] nativeLockProxy, byte[] nativeAssetHash)
         {
             byte[] key = GetRegistryKey(assetHash, nativeChainId, nativeLockProxy, nativeAssetHash);
             StorageMap balances = Storage.CurrentContext.CreateMap(nameof(balances));
@@ -164,6 +165,7 @@ namespace Nep5Proxy
             }
 
             MarkAssetAsRegistered(key);
+            RegisterAssetEvent(nativeAssetHash, fromChainId, fromProxyContract, assetHash);
 
             return true;
         }
