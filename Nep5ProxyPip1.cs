@@ -11,7 +11,8 @@ namespace Nep5Proxy
 {
     public class Nep5ProxyPip1 : SmartContract
     {
-        // Constants
+      // Constants
+        private static readonly byte Version = 0x02;
         private static readonly byte[] CCMCScriptHash = "7f25d672e8626d2beaa26f2cb40da6b91f40a382".HexToBytes(); // little endian
 
         // Dynamic Call
@@ -28,8 +29,12 @@ namespace Nep5Proxy
             {
                 var callscript = ExecutionEngine.CallingScriptHash;
 
+                if (method == "getVersion")
+                    return GetVersion();
                 if (method == "getAssetBalance")
                     return GetAssetBalance((byte[])args[0]);
+                if (method == "getLockedBalance")
+                    return GetLockedBalance((BigInteger)args[0], (byte[])args[1], (byte[])args[2], (byte[])args[3]);
                 if (method == "delegateAsset")
                     return DelegateAsset((BigInteger)args[0], (byte[])args[1], (byte[])args[2], (BigInteger)args[3], callscript);
                 if (method == "registerAsset")
@@ -40,6 +45,20 @@ namespace Nep5Proxy
                     return Unlock((byte[])args[0], (byte[])args[1], (BigInteger)args[2], callscript);
             }
             return false;
+        }
+
+        [DisplayName("getVersion")]
+        public static byte GetVersion()
+        {
+          return Version;
+        }
+
+        [DisplayName("getLockedBalance")]
+        public static BigInteger GetLockedBalance(BigInteger nativeChainId, byte[] nativeLockProxy, byte[] nativeAssetHash, byte[] assetHash)
+        {
+            byte[] key = GetRegistryKey(assetHash, nativeChainId, nativeLockProxy, nativeAssetHash);
+            StorageMap balances = Storage.CurrentContext.CreateMap(nameof(balances));
+            return balances.Get(key).AsBigInteger();
         }
 
         [DisplayName("getAssetBalance")]
