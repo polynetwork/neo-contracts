@@ -20,7 +20,7 @@ namespace Nep5Proxy
 
         // Events
         public static event Action<byte[], BigInteger, byte[], byte[]> DelegateAssetEvent;
-        public static event Action<byte[], BigInteger, byte[], byte[]> RegisterAssetEvent;
+        public static event Action<byte[], BigInteger, byte[], byte[], byte[]> RegisterAssetEvent;
         public static event Action<byte[], byte[], BigInteger, byte[], byte[], BigInteger, byte[]> LockEvent;
         public static event Action<byte[], byte[], BigInteger> UnlockEvent;
 
@@ -36,6 +36,10 @@ namespace Nep5Proxy
                     return GetAssetBalance((byte[])args[0]);
                 if (method == "getLockedBalance")
                     return GetLockedBalance((byte[])args[0], (BigInteger)args[1], (byte[])args[2], (byte[])args[3]);
+                if (method == "assetIsRegistered")
+                    return AssetIsRegistered((byte[])args[0]);
+                if (method == "getRegistryKey")
+                    return GetRegistryKey((byte[])args[0], (BigInteger)args[1], (byte[])args[2], (byte[])args[3]);
                 if (method == "delegateAsset")
                     return DelegateAsset((BigInteger)args[0], (byte[])args[1], (byte[])args[2], (BigInteger)args[3], callscript);
                 if (method == "registerAsset")
@@ -165,7 +169,7 @@ namespace Nep5Proxy
             }
 
             MarkAssetAsRegistered(key);
-            RegisterAssetEvent(nativeAssetHash, fromChainId, fromProxyContract, assetHash);
+            RegisterAssetEvent(nativeAssetHash, fromChainId, fromProxyContract, assetHash, key);
 
             return true;
         }
@@ -381,7 +385,17 @@ namespace Nep5Proxy
             return true;
         }
 
-        private static bool AssetIsRegistered(byte[] key)
+        public static byte[] GetRegistryKey(byte[] assetHash, BigInteger nativeChainId, byte[] nativeLockProxy, byte[] nativeAssetHash)
+        {
+            byte[] assetHashBz = Hash256(assetHash);
+            byte[] nativeChainIdBz = Hash256(nativeChainId.AsByteArray());
+            byte[] nativeLockProxyBz = Hash256(nativeLockProxy);
+            byte[] nativeAssetHashBz = Hash256(nativeAssetHash);
+
+            return Hash256(assetHashBz.Concat(nativeChainIdBz).Concat(nativeLockProxyBz).Concat(nativeAssetHashBz));
+        }
+
+        public static bool AssetIsRegistered(byte[] key)
         {
             StorageMap registry = Storage.CurrentContext.CreateMap(nameof(registry));
             return registry.Get(key).Length != 0;
@@ -391,11 +405,6 @@ namespace Nep5Proxy
         {
             StorageMap registry = Storage.CurrentContext.CreateMap(nameof(registry));
             registry.Put(key, 0x01);
-        }
-
-        private static byte[] GetRegistryKey(byte[] assetHash, BigInteger nativeChainId, byte[] nativeLockProxy, byte[] nativeAssetHash)
-        {
-            return Hash256(assetHash.Concat(nativeChainId.AsByteArray()).Concat(nativeLockProxy).Concat(nativeAssetHash));
         }
 
         private static bool IncreaseBalance(byte[] key, BigInteger amount)
