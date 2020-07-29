@@ -11,7 +11,7 @@ namespace Nep5Proxy
 {
     public class Nep5ProxyPip1 : SmartContract
     {
-      // Constants
+        // Constants
         private static readonly byte Version = 0x02;
         private static readonly byte[] CCMCScriptHash = "7f25d672e8626d2beaa26f2cb40da6b91f40a382".HexToBytes(); // little endian
 
@@ -22,7 +22,7 @@ namespace Nep5Proxy
         public static event Action<byte[], BigInteger, byte[], byte[]> DelegateAssetEvent;
         public static event Action<byte[], BigInteger, byte[], byte[], byte[]> RegisterAssetEvent;
         public static event Action<byte[], byte[], BigInteger, byte[], byte[], BigInteger, byte[]> LockEvent;
-        public static event Action<byte[], byte[], BigInteger> UnlockEvent;
+        public static event Action<byte[], byte[], BigInteger, byte[], bool> UnlockEvent;
 
         public static object Main(string method, object[] args)
         {
@@ -55,7 +55,7 @@ namespace Nep5Proxy
         [DisplayName("getVersion")]
         public static byte GetVersion()
         {
-          return Version;
+            return Version;
         }
 
         [DisplayName("getLockedBalance")]
@@ -317,6 +317,7 @@ namespace Nep5Proxy
             var amount = (BigInteger)results[3];
             var feeAmount = (BigInteger)results[4];
             var feeAddress = (byte[])results[5];
+            var fromAddress = (byte[])results[6];
 
             if (toAssetHash.Length != 20)
             {
@@ -377,10 +378,12 @@ namespace Nep5Proxy
                     Runtime.Notify("Failed to transfer NEP5 token to feeAddress.");
                     return false;
                 }
-                UnlockEvent(toAssetHash, feeAddress, feeAmount);
+                // last param, isFee: true
+                UnlockEvent(toAssetHash, feeAddress, feeAmount, fromAddress, true);
             }
 
-            UnlockEvent(toAssetHash, toAddress, amount);
+            // last param, isFee: false
+            UnlockEvent(toAssetHash, toAddress, amount, fromAddress, false);
 
             return true;
         }
@@ -528,7 +531,10 @@ namespace Nep5Proxy
             res = ReadVarBytes(buffer, (int)res[1]);
             var feeAddress = res[0];
 
-            return new object[] { fromAssetHash, toAssetHash, toAddress, amount, feeAmount, feeAddress };
+            res = ReadVarBytes(buffer, (int)res[1]);
+            var fromAddress = res[0];
+
+            return new object[] { fromAssetHash, toAssetHash, toAddress, amount, feeAmount, feeAddress, fromAddress };
         }
 
         private static byte[] SerializeRegisterAssetArgs(byte[] assetHash, byte[] nativeAssetHash)
