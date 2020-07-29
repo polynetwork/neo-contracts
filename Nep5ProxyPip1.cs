@@ -22,7 +22,7 @@ namespace Nep5Proxy
         public static event Action<byte[], BigInteger, byte[], byte[]> DelegateAssetEvent;
         public static event Action<byte[], BigInteger, byte[], byte[], byte[]> RegisterAssetEvent;
         public static event Action<byte[], byte[], BigInteger, byte[], byte[], BigInteger, byte[]> LockEvent;
-        public static event Action<byte[], byte[], BigInteger, byte[], bool> UnlockEvent;
+        public static event Action<byte[], byte[], BigInteger, bool, byte[]> UnlockEvent;
 
         public static object Main(string method, object[] args)
         {
@@ -379,11 +379,11 @@ namespace Nep5Proxy
                     return false;
                 }
                 // last param, isFee: true
-                UnlockEvent(toAssetHash, feeAddress, feeAmount, fromAddress, true);
+                UnlockEvent(toAssetHash, feeAddress, feeAmount, true, inputBytes);
             }
 
             // last param, isFee: false
-            UnlockEvent(toAssetHash, toAddress, amount, fromAddress, false);
+            UnlockEvent(toAssetHash, toAddress, amount, false, inputBytes);
 
             return true;
         }
