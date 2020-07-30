@@ -22,7 +22,7 @@ namespace Nep5Proxy
         public static event Action<byte[], BigInteger, byte[], byte[]> DelegateAssetEvent;
         public static event Action<byte[], BigInteger, byte[], byte[], byte[]> RegisterAssetEvent;
         public static event Action<byte[], byte[], BigInteger, byte[], byte[], BigInteger, byte[]> LockEvent;
-        public static event Action<byte[], byte[], BigInteger, bool, byte[]> UnlockEvent;
+        public static event Action<byte[], byte[], BigInteger, byte[]> UnlockEvent;
 
         public static object Main(string method, object[] args)
         {
@@ -378,12 +378,10 @@ namespace Nep5Proxy
                     Runtime.Notify("Failed to transfer NEP5 token to feeAddress.");
                     return false;
                 }
-                // last param, isFee: true
-                UnlockEvent(toAssetHash, feeAddress, feeAmount, true, inputBytes);
             }
 
             // last param, isFee: false
-            UnlockEvent(toAssetHash, toAddress, amount, false, inputBytes);
+            UnlockEvent(toAssetHash, toAddress, amount, inputBytes);
 
             return true;
         }
