@@ -82,6 +82,14 @@ namespace Nep5Proxy
 #endif
         private static bool DelegateAsset(BigInteger nativeChainId, byte[] nativeLockProxy, byte[] nativeAssetHash, BigInteger delegatedSupply, byte[] assetHash)
         {
+            if (!IsValidByteArray(nativeLockProxy)) {
+                Runtime.Notify("The parameter nativeLockProxy is too long");
+                return false;
+            }
+            if (!IsValidByteArray(nativeAssetHash)) {
+                Runtime.Notify("The parameter nativeAssetHash is too long");
+                return false;
+            }
             if (nativeChainId == 0)
             {
                 Runtime.Notify("The parameter nativeChainId must not be zero");
@@ -160,6 +168,19 @@ namespace Nep5Proxy
             var assetHash = (byte[])results[0];
             var nativeAssetHash = (byte[])results[1];
 
+            if (!IsValidByteArray(assetHash)) {
+                Runtime.Notify("The parameter assetHash is too long");
+                return false;
+            }
+            if (!IsValidByteArray(nativeAssetHash)) {
+                Runtime.Notify("The parameter nativeAssetHash is too long");
+                return false;
+            }
+            if (!IsValidByteArray(fromProxyContract)) {
+                Runtime.Notify("The parameter fromProxyContract is too long");
+                return false;
+            }
+
             byte[] key = GetRegistryKey(nativeAssetHash, fromChainId, fromProxyContract, assetHash);
 
             if (AssetIsRegistered(key))
@@ -178,6 +199,22 @@ namespace Nep5Proxy
         [DisplayName("lock")]
         public static bool Lock(byte[] fromAssetHash, byte[] fromAddress, BigInteger toChainId, byte[] targetProxyHash, byte[] toAssetHash, byte[] toAddress, BigInteger amount, bool deductFeeInLock, BigInteger feeAmount, byte[] feeAddress)
         {
+            if (!IsValidByteArray(targetProxyHash)) {
+                Runtime.Notify("The parameter targetProxyHash is too long");
+                return false;
+            }
+            if (!IsValidByteArray(toAssetHash)) {
+                Runtime.Notify("The parameter toAssetHash is too long");
+                return false;
+            }
+            if (!IsValidByteArray(toAddress)) {
+                Runtime.Notify("The parameter toAddress is too long");
+                return false;
+            }
+            if (!IsValidByteArray(feeAddress)) {
+                Runtime.Notify("The parameter feeAddress is too long");
+                return false;
+            }
             if (fromAssetHash.Length != 20)
             {
                 Runtime.Notify("The parameter fromAssetHash SHOULD be 20-byte long.");
@@ -238,6 +275,11 @@ namespace Nep5Proxy
             if (!AssetIsRegistered(key))
             {
                 Runtime.Notify("This asset has not yet been registered");
+                return false;
+            }
+
+            if (feeAmount > amount) {
+                Runtime.Notify("FeeAmount cannot be greater than Amount");
                 return false;
             }
 
@@ -319,6 +361,19 @@ namespace Nep5Proxy
             var feeAddress = (byte[])results[5];
             var fromAddress = (byte[])results[6];
 
+            if (!IsValidByteArray(fromAssetHash)) {
+                Runtime.Notify("The parameter fromAssetHash is too long");
+                return false;
+            }
+            if (!IsValidByteArray(fromAddress)) {
+                Runtime.Notify("The parameter fromAddress is too long");
+                return false;
+            }
+            if (!IsValidByteArray(feeAddress)) {
+                Runtime.Notify("The parameter feeAddress is too long");
+                return false;
+            }
+
             if (toAssetHash.Length != 20)
             {
                 Runtime.Notify("ToChain Asset script hash SHOULD be 20-byte long.");
@@ -342,6 +397,10 @@ namespace Nep5Proxy
             if (feeAmount > 0 && feeAddress.Length != 20)
             {
                 Runtime.Notify("ToChain FeeAddress SHOULD be 20-byte long.");
+                return false;
+            }
+            if (feeAmount > amount) {
+                Runtime.Notify("FeeAmount cannot be greater than Amount");
                 return false;
             }
 
@@ -400,6 +459,11 @@ namespace Nep5Proxy
         {
             StorageMap registry = Storage.CurrentContext.CreateMap(nameof(registry));
             return registry.Get(key).Length != 0;
+        }
+
+        private static bool IsValidByteArray(byte[] bz)
+        {
+          return bz.Length <= 256;
         }
 
         private static void MarkAssetAsRegistered(byte[] key)
