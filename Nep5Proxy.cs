@@ -191,8 +191,7 @@ namespace Nep5Proxy
             success = (bool)ccmc("CrossChain", param);
             if (!success)
             {
-                Runtime.Notify("Failed to call CCMC.");
-                return false;
+                throw new Exception("Invoke CCMC CrossChain method failed!");
             }
 
             LockEvent(fromAssetHash, fromAddress, toChainId, toAssetHash, toAddress, amount);
