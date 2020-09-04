@@ -229,13 +229,15 @@ namespace Nep5Proxy
             assert(toAssetHash.Length > 0, "lock: toAssetHash SHOULD not be empty.");
 
             // transfer asset from fromAddress to proxy contract address, use dynamic call to call nep5 token's contract "transfer"
-            bool success = (bool)((DynCall)fromAssetHash.ToDelegate())("transfer", new object[] { fromAddress, ExecutionEngine.ExecutingScriptHash, amount });
+            object[] param1 = new object[] { fromAddress, ExecutionEngine.ExecutingScriptHash, amount };
+            bool success = (bool)((DynCall)fromAssetHash.ToDelegate())("transfer", params);
             assert(success, "lock: Failed to transfer NEP5 token to Nep5Proxy.");
 
             // construct args for proxy contract on target chain
             var inputArgs = SerializeArgs(toAssetHash, toAddress, amount);
             // dynamic call CCMC
-            success = (bool)((DynCall)CCMCScriptHash.ToDelegate())("CrossChain", new object[] { toChainId, toProxyHash, "unlock", inputArgs });
+            object[] param2 = new object[] { toChainId, toProxyHash, "unlock", inputArgs };
+            success = (bool)((DynCall)CCMCScriptHash.ToDelegate())("CrossChain", param2);
             assert(success, "lock: Failed to call CCMC.");
             LockEvent(fromAssetHash, fromAddress, toChainId, toAssetHash, toAddress, amount);
 
@@ -267,7 +269,8 @@ namespace Nep5Proxy
 
 
             // transfer asset from proxy contract to toAddress
-            bool success = (bool)((DynCall)toAssetHash.ToDelegate())("transfer", new object[] { ExecutionEngine.ExecutingScriptHash, toAddress, amount });
+            object[] param = new object[] { ExecutionEngine.ExecutingScriptHash, toAddress, amount };
+            bool success = (bool)((DynCall)toAssetHash.ToDelegate())("transfer", param);
             assert(success, "unlock: Failed to transfer NEP5 token From Nep5Proxy to toAddress.");
             UnlockEvent(toAssetHash, toAddress, amount);
 
