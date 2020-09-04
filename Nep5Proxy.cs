@@ -1,9 +1,9 @@
-﻿using Neo.SmartContract.Framework;
-using Neo.SmartContract.Framework.Services.Neo;
-using Neo.SmartContract.Framework.Services.System;
-using System;
+﻿using System;
 using System.ComponentModel;
 using System.Numerics;
+using Neo.SmartContract.Framework;
+using Neo.SmartContract.Framework.Services.Neo;
+using Neo.SmartContract.Framework.Services.System;
 
 [assembly: Features(ContractPropertyState.HasStorage | ContractPropertyState.HasDynamicInvoke | ContractPropertyState.Payable)]
 
@@ -12,46 +12,47 @@ namespace Nep5Proxy
     public class Nep5Proxy : SmartContract
     {
         // Constants
+        // TODO: fill in ccmc script hash and operator address
         private static readonly byte[] CCMCScriptHash = "".HexToBytes(); // little endian
-        private static readonly byte[] Operator = "".ToScriptHash(); // Operator address
+        private static readonly byte[] OperatorKey = "ok".AsByteArray();
+        private static readonly byte[] ProxyHashPrefix = new byte[] { 0x01, 0x01 };
+        private static readonly byte[] AssetHashPrefix = new byte[] { 0x01, 0x02 };
+        private static readonly byte[] PauseKey = "pk".AsByteArray();
+        private static readonly byte[] FromAssetHashMapKey = "fahmk".AsByteArray(); // "FromAssetList";
 
         // Dynamic Call
-        private delegate object DynCall(string method, object[] args); // dynamic call
-        
+        delegate object DynCall(string method, object[] args); // dynamic call
+
         // Events
+        public static event Action<byte[]> InitEvent;
+        public static event Action<byte[], byte[]> TransferOwnershipEvent;
         public static event Action<byte[], byte[], BigInteger, byte[], byte[], BigInteger> LockEvent;
         public static event Action<byte[], byte[], BigInteger> UnlockEvent;
-        public static event Action<byte[], BigInteger, byte[], BigInteger> BindAssetHashEvent;
         public static event Action<BigInteger, byte[]> BindProxyHashEvent;
-
-        // Storage prefix
-        private static readonly byte[] FromAssetListPrefix = new byte[] { 0x01, 0x01 }; // "FromAssetList";
+        public static event Action<byte[], BigInteger, byte[]> BindAssetHashEvent;
 
         public static object Main(string method, object[] args)
         {
             if (Runtime.Trigger == TriggerType.Application)
             {
-                var callscript = ExecutionEngine.CallingScriptHash;
+                if (method == "init") return Init((byte[])args[0]);
+                if (method == "pause") return Pause();
+                if (method == "unpause") return Unpause();
+                if (method == "isPaused") return IsPaused();
+                if (method == "transferOwnership") return TransferOwnership((byte[])args[0]);
+                if (method == "getOperator") return GetOperator();
+                if (method == "bindProxyHash") return BindProxyHash((BigInteger)args[0], (byte[])args[1]);
+                if (method == "bindAssetHash") return BindAssetHash((byte[])args[0], (BigInteger)args[1], (byte[])args[2]);
+                if (method == "getAssetBalance") return GetAssetBalance((byte[])args[0]);
+                if (method == "getProxyHash") return GetProxyHash((BigInteger)args[0]);
+                if (method == "getAssetHash") return GetAssetHash((byte[])args[0], (BigInteger)args[1]);
+                if (method == "getFromAssetHashes") return GetFromAssetHashes();
+                if (method == "lock") return Lock((byte[])args[0], (byte[])args[1], (BigInteger)args[2], (byte[])args[3], (BigInteger)args[4]);
+                if (method == "unlock") return Unlock((byte[])args[0], (byte[])args[1], (BigInteger)args[2]);
 
-                if (method == "bindProxyHash")
-                    return BindProxyHash((BigInteger)args[0], (byte[])args[1]);
-                if (method == "bindAssetHash")
-                    return BindAssetHash((byte[])args[0], (BigInteger)args[1], (byte[])args[2]);
-                if (method == "getAssetBalance")
-                    return GetAssetBalance((byte[])args[0]);
-                if (method == "getProxyHash")
-                    return GetProxyHash((BigInteger)args[0]);
-                if (method == "getAssetHash")
-                    return GetAssetHash((byte[])args[0], (BigInteger)args[1]);
-                if (method == "lock")
-                    return Lock((byte[])args[0], (byte[])args[1], (BigInteger)args[2], (byte[])args[3], (BigInteger)args[4]);
-                if (method == "unlock")
-                    return Unlock((byte[])args[0], (byte[])args[1], (BigInteger)args[2], callscript);
-                
                 if (method == "upgrade")
                 {
-                    Runtime.Notify("In upgrade");
-                    if (args.Length < 9) return false;
+                    assert(args.Length == 9, "upgrade: args.Length != 9.");
                     byte[] script = (byte[])args[0];
                     byte[] plist = (byte[])args[1];
                     byte rtype = (byte)args[2];
@@ -64,17 +65,69 @@ namespace Nep5Proxy
                     return Upgrade(script, plist, rtype, cps, name, version, author, email, description);
                 }
             }
+            assert(false, "invalid method-".AsByteArray().Concat(method.AsByteArray()).AsString());
+            // After throw exception is enabled, code will never run below.
             return false;
+        }
+
+        [DisplayName("init")]
+        public static bool Init(byte[] _operator)
+        {
+            assert(Storage.Get(OperatorKey).Length == 0, "init: operator exist: ".AsByteArray().Concat(Storage.Get(OperatorKey)).AsString());
+            assert(Runtime.CheckWitness(_operator), "init: CheckWitness failed");
+            Storage.Put(OperatorKey, _operator);
+            InitEvent(_operator);
+            return true;
+        }
+
+        [DisplayName("pause")]
+        public static bool Pause()
+        {
+            assert(Runtime.CheckWitness(GetOperator()), "pause: CheckWitness failed!");
+            Storage.Put(PauseKey, new byte[] { 0x01 });
+            return true;
+        }
+
+
+        [DisplayName("unpause")]
+        public static bool Unpause()
+        {
+            assert(Runtime.CheckWitness(GetOperator()), "pause: CheckWitness failed!");
+            Storage.Delete(PauseKey);
+            return true;
+        }
+        [DisplayName("isPaused")]
+        public static bool IsPaused()
+        {
+            return Storage.Get(PauseKey).Equals(new byte[] { 0x01 });
+        }
+        [DisplayName("transferOwnership")]
+        public static bool TransferOwnership(byte[] newOperator)
+        {
+            assert(newOperator.Length == 20, "transferOwnership: newOperator.Length != 20");
+            byte[] operator_ = Storage.Get(OperatorKey);
+            assert(Runtime.CheckWitness(operator_), "transferOwnership: CheckWitness failed!");
+            Storage.Put(OperatorKey, newOperator);
+            TransferOwnershipEvent(operator_, newOperator);
+            return true;
+        }
+
+        [DisplayName("getOperator")]
+        public static byte[] GetOperator()
+        {
+            return Storage.Get(OperatorKey);
         }
 
         // add target proxy contract hash according to chain id into contract storage
         [DisplayName("bindProxyHash")]
-        public static bool BindProxyHash(BigInteger toChainId, byte[] targetProxyHash)
+        public static bool BindProxyHash(BigInteger toChainId, byte[] toProxyHash)
         {
-            if (!Runtime.CheckWitness(Operator)) return false;
-            StorageMap proxyHash = Storage.CurrentContext.CreateMap(nameof(proxyHash));
-            proxyHash.Put(toChainId.AsByteArray(), targetProxyHash);
-            BindProxyHashEvent(toChainId, targetProxyHash);
+            assert(toChainId > 0 && toChainId != 4, "bindProxyHash: toChainId is negative or equal to 4.");
+            assert(toProxyHash.Length > 0, "bindProxyHash: toProxyHash.Length == 0");
+            byte[] operator_ = Storage.Get(OperatorKey);
+            assert(Runtime.CheckWitness(operator_), "bindProxyHash: CheckWitness failed, ".AsByteArray().Concat(operator_).AsString());
+            Storage.Put(ProxyHashPrefix.Concat(toChainId.AsByteArray()), toProxyHash);
+            BindProxyHashEvent(toChainId, toProxyHash);
             return true;
         }
 
@@ -82,36 +135,51 @@ namespace Nep5Proxy
         [DisplayName("bindAssetHash")]
         public static bool BindAssetHash(byte[] fromAssetHash, BigInteger toChainId, byte[] toAssetHash)
         {
-            if (!Runtime.CheckWitness(Operator)) return false;
-            if (!AddFromAssetHash(fromAssetHash)) return false;
+            assert(fromAssetHash.Length == 20, "bindAssetHash: fromAssetHash length != 20.");
+            assert(toChainId > 0 && toChainId != 4, "bindAssetHash: toChainId cannot be negative or equal to 4.");
+            assert(toAssetHash.Length == 20, "bindAssetHash: oldAssetHash length != 20.");
 
-            StorageMap assetHash = Storage.CurrentContext.CreateMap(nameof(assetHash));
-            assetHash.Put(fromAssetHash.Concat(toChainId.AsByteArray()), toAssetHash);
+            byte[] operator_ = Storage.Get(OperatorKey);
+            assert(Runtime.CheckWitness(operator_), "bindAssetHash: CheckWitness failed, ".AsByteArray().Concat(operator_).AsString());
 
-            BigInteger currentBalance = GetAssetBalance(fromAssetHash);
-            BindAssetHashEvent(fromAssetHash, toChainId, toAssetHash, currentBalance);
+            // Add fromAssetHash into storage so as to be able to be transferred into newly upgraded contract
+            assert(addFromAssetHash(fromAssetHash), "bindAssetHash: addFromAssetHash failed!");
+            Storage.Put(AssetHashPrefix.Concat(fromAssetHash).Concat(toChainId.ToByteArray()), toAssetHash);
+            BindAssetHashEvent(fromAssetHash, toChainId, toAssetHash);
             return true;
         }
 
-        private static bool AddFromAssetHash(byte[] fromAssetHash)
+        private static bool addFromAssetHash(byte[] newAssetHash)
         {
-            StorageMap fromAssetList = Storage.CurrentContext.CreateMap(nameof(fromAssetList));
-            byte[] info = fromAssetList.Get(FromAssetListPrefix.Concat(fromAssetHash));
-            if (info.Length != 0)
+            Map<byte[], bool> assetHashMap = new Map<byte[], bool>();
+            byte[] assetHashMapInfo = Storage.Get(FromAssetHashMapKey);
+            if (assetHashMapInfo.Length == 0)
             {
-                Runtime.Notify("From asset hash exists");
-                return true;
+                assetHashMap[newAssetHash] = true;
             }
-            fromAssetList.Put(FromAssetListPrefix.Concat(fromAssetHash), fromAssetHash);
+            else
+            {
+                assetHashMap = (Map<byte[], bool>)assetHashMapInfo.Deserialize();
+                if (!assetHashMap.HasKey(newAssetHash))
+                {
+                    assetHashMap[newAssetHash] = true;
+                }
+                else
+                {
+                    return true;
+                }
+            }
+            // Make sure fromAssetHash has balanceOf method
+            BigInteger balance = GetAssetBalance(newAssetHash);
+            Storage.Put(FromAssetHashMapKey, assetHashMap.Serialize());
             return true;
         }
 
         [DisplayName("getAssetBalance")]
         public static BigInteger GetAssetBalance(byte[] assetHash)
         {
-            byte[] currentHash = ExecutionEngine.ExecutingScriptHash; // this proxy contract hash
-            var nep5Contract = (DynCall)assetHash.ToDelegate();
-            BigInteger balance = (BigInteger)nep5Contract("balanceOf", new object[] { currentHash });
+            byte[] curHash = ExecutionEngine.ExecutingScriptHash;
+            BigInteger balance = (BigInteger)((DynCall)assetHash.ToDelegate())("balanceOf", new object[] { curHash });
             return balance;
         }
 
@@ -119,159 +187,134 @@ namespace Nep5Proxy
         [DisplayName("getProxyHash")]
         public static byte[] GetProxyHash(BigInteger toChainId)
         {
-            StorageMap proxyHash = Storage.CurrentContext.CreateMap(nameof(proxyHash));
-            return proxyHash.Get(toChainId.AsByteArray());
+            return Storage.Get(ProxyHashPrefix.Concat(toChainId.ToByteArray()));
         }
 
         // get target asset contract hash according to local asset hash & chain id
         [DisplayName("getAssetHash")]
         public static byte[] GetAssetHash(byte[] fromAssetHash, BigInteger toChainId)
         {
-            StorageMap assetHash = Storage.CurrentContext.CreateMap(nameof(assetHash));
-            return assetHash.Get(fromAssetHash.Concat(toChainId.AsByteArray()));
+            return Storage.Get(AssetHashPrefix.Concat(fromAssetHash).Concat(toChainId.ToByteArray()));
+        }
+
+        [DisplayName("getFromAssetHashes")]
+        public static byte[][] GetFromAssetHashes()
+        {
+            byte[] assetHashMapInfo = Storage.Get(FromAssetHashMapKey);
+            if (assetHashMapInfo.Length == 0)
+            {
+                return new byte[][] { };
+            }
+            Map<byte[], bool> assetHashMap = (Map<byte[], bool>)assetHashMapInfo.Deserialize();
+            return assetHashMap.Keys;
         }
 
         // used to lock asset into proxy contract
         [DisplayName("lock")]
         public static bool Lock(byte[] fromAssetHash, byte[] fromAddress, BigInteger toChainId, byte[] toAddress, BigInteger amount)
         {
-            if (fromAssetHash.Length != 20)
-            {
-                Runtime.Notify("The parameter fromAssetHash SHOULD be 20-byte long.");
-                return false;
-            }
-            if (fromAddress.Length != 20)
-            {
-                Runtime.Notify("The parameter fromAddress SHOULD be 20-byte long.");
-                return false;
-            }
-            if (toAddress.Length == 0)
-            {
-                Runtime.Notify("The parameter toAddress SHOULD not be empty.");
-                return false;
-            }
-            if (amount < 0)
-            {
-                Runtime.Notify("The parameter amount SHOULD not be less than 0.");
-                return false;
-            }
-            
-            // get the corresbonding asset on target chain
-            var toAssetHash = GetAssetHash(fromAssetHash, toChainId);
-            if (toAssetHash.Length == 0)
-            {
-                Runtime.Notify("Target chain asset hash not found.");
-                return false;
-            }
+            assert(fromAssetHash.Length == 20, "lock: fromAssetHash SHOULD be 20-byte long.");
+            assert(fromAddress.Length == 20, "lock: fromAddress SHOULD be 20-byte long.");
+            assert(toAddress.Length > 0, "lock: toAddress SHOULD not be empty.");
+            assert(amount > 0, "lock: amount SHOULD be greater than 0.");
+
+            assert(!IsPaused(), "lock: proxy is locked");
 
             // get the proxy contract on target chain
             var toProxyHash = GetProxyHash(toChainId);
-            if (toProxyHash.Length == 0)
-            {
-                Runtime.Notify("Target chain proxy contract not found.");
-                return false;
-            }
+            assert(toProxyHash.Length > 0, "lock: toProxyHash SHOULD not be empty.");
+
+            // get the corresbonding asset on to chain
+            var toAssetHash = GetAssetHash(fromAssetHash, toChainId);
+            assert(toAssetHash.Length > 0, "lock: toAssetHash SHOULD not be empty.");
 
             // transfer asset from fromAddress to proxy contract address, use dynamic call to call nep5 token's contract "transfer"
-            byte[] currentHash = ExecutionEngine.ExecutingScriptHash; // this proxy contract hash
-            var nep5Contract = (DynCall)fromAssetHash.ToDelegate();
-            bool success = (bool)nep5Contract("transfer", new object[] { fromAddress, currentHash, amount });
-            if (!success)
-            {
-                Runtime.Notify("Failed to transfer NEP5 token to proxy contract.");
-                return false;
-            }
+            bool success = (bool)((DynCall)fromAssetHash.ToDelegate())("transfer", new object[] { fromAddress, ExecutionEngine.ExecutingScriptHash, amount });
+            assert(success, "lock: Failed to transfer NEP5 token to Nep5Proxy.");
 
             // construct args for proxy contract on target chain
             var inputArgs = SerializeArgs(toAssetHash, toAddress, amount);
-            // construct params for CCMC 
-            var param = new object[] { toChainId, toProxyHash, "unlock", inputArgs };
             // dynamic call CCMC
-            var ccmc = (DynCall)CCMCScriptHash.ToDelegate();
-            success = (bool)ccmc("CrossChain", param);
-            if (!success)
-            {
-                Runtime.Notify("Failed to call CCMC.");
-                return false;
-            }
-
+            success = (bool)((DynCall)CCMCScriptHash.ToDelegate())("CrossChain", new object[] { toChainId, toProxyHash, "unlock", inputArgs });
+            assert(success, "lock: Failed to call CCMC.");
             LockEvent(fromAssetHash, fromAddress, toChainId, toAssetHash, toAddress, amount);
 
             return true;
         }
 
-#if DEBUG
-        [DisplayName("unlock")] //Only for ABI file
-        public static bool Unlock(byte[] inputBytes, byte[] fromProxyContract, BigInteger fromChainId) => true;
-#endif
-
         // Methods of actual execution, used to unlock asset from proxy contract
-        private static bool Unlock(byte[] inputBytes, byte[] fromProxyContract, BigInteger fromChainId, byte[] caller)
+        [DisplayName("unlock")]
+        public static bool Unlock(byte[] inputBytes, byte[] fromProxyContract, BigInteger fromChainId)
         {
             //only allowed to be called by CCMC
-            if (caller.AsBigInteger() != CCMCScriptHash.AsBigInteger())
-            {
-                Runtime.Notify("Only allowed to be called by CCMC");
-                Runtime.Notify(caller);
-                Runtime.Notify(CCMCScriptHash);
-                return false;
-            }
+            assert(ExecutionEngine.CallingScriptHash.Equals(CCMCScriptHash), "unlock: Only allowed to be called by CCMC.");
 
-            byte[] storedProxy = GetProxyHash(fromChainId);
-            
+            byte[] proxyHash = Storage.Get(ProxyHashPrefix).Concat(fromChainId.ToByteArray());
+
             // check the fromContract is stored, so we can trust it
-            if (fromProxyContract.AsBigInteger() != storedProxy.AsBigInteger())
-            {
-                Runtime.Notify("From proxy contract not found.");
-                Runtime.Notify(fromProxyContract);
-                Runtime.Notify(fromChainId);
-                Runtime.Notify(storedProxy);
-                return false;
-            }
+            assert(proxyHash.Equals(fromProxyContract), "unlock: fromProxyContract Not equal stored proxy hash.");
+
+            assert(!IsPaused(), "lock: proxy is locked");
 
             // parse the args bytes constructed in source chain proxy contract, passed by multi-chain
             object[] results = DeserializeArgs(inputBytes);
             var toAssetHash = (byte[])results[0];
             var toAddress = (byte[])results[1];
             var amount = (BigInteger)results[2];
-            if (toAssetHash.Length != 20) 
-            { 
-                Runtime.Notify("ToChain Asset script hash SHOULD be 20-byte long.");
-                return false; 
-            }
-            if (toAddress.Length != 20)
-            {
-                Runtime.Notify("ToChain Account address SHOULD be 20-byte long.");
-                return false;
-            }
-            if (amount < 0)
-            {
-                Runtime.Notify("ToChain Amount SHOULD not be less than 0.");
-                return false;
-            }
+            assert(toAssetHash.Length == 20, "unlock: ToChain Asset script hash SHOULD be 20-byte long.");
+            assert(toAddress.Length == 20, "unlock: ToChain Account address SHOULD be 20-byte long.");
+            assert(amount >= 0, "ToChain Amount SHOULD not be less than 0.");
+
 
             // transfer asset from proxy contract to toAddress
-            byte[] currentHash = ExecutionEngine.ExecutingScriptHash; // this proxy contract hash
-            var nep5Contract = (DynCall)toAssetHash.ToDelegate();
-            bool success = (bool)nep5Contract("transfer", new object[] { currentHash, toAddress, amount });
-            if (!success)
-            {
-                Runtime.Notify("Failed to transfer NEP5 token to toAddress.");
-                return false;
-            }
-
+            bool success = (bool)((DynCall)toAssetHash.ToDelegate())("transfer", new object[] { ExecutionEngine.ExecutingScriptHash, toAddress, amount });
+            assert(success, "unlock: Failed to transfer NEP5 token From Nep5Proxy to toAddress.");
             UnlockEvent(toAssetHash, toAddress, amount);
 
             return true;
         }
-        
+
         // used to upgrade this proxy contract
         [DisplayName("upgrade")]
         public static bool Upgrade(byte[] newScript, byte[] paramList, byte returnType, ContractPropertyState cps, string name, string version, string author, string email, string description)
         {
-            if (!Runtime.CheckWitness(Operator)) return false;
-            var contract = Contract.Migrate(newScript, paramList, returnType, cps, name, version, author, email, description);
-            Runtime.Notify("Proxy contract upgraded");
+            assert(Runtime.CheckWitness(Storage.Get(OperatorKey)), "upgrade: CheckWitness failed!");
+
+            byte[] newContractHash = Hash160(newScript);
+
+            assert(transferAssetsToNewContract(newContractHash), "upgrade: transfer asset into new contract hash failed!");
+
+            Contract newContract = Contract.Migrate(newScript, paramList, returnType, cps, name, version, author, email, description);
+
+            Runtime.Notify(new object[] { "upgrade", ExecutionEngine.ExecutingScriptHash, newContractHash });
+            return true;
+        }
+
+        private static bool transferAssetsToNewContract(byte[] newContractHash)
+        {
+            // Try to transfer nep5 asset from old contract into new contract
+            byte[] assetHashMapInfo = Storage.Get(FromAssetHashMapKey);
+            if (assetHashMapInfo.Length > 0)
+            {
+                Map<byte[], bool> assetHashMap = (Map<byte[], bool>)assetHashMapInfo.Deserialize();
+                byte[][] assetHashes = assetHashMap.Keys;
+
+                byte[] self = ExecutionEngine.ExecutingScriptHash;
+                BigInteger assetBalance;
+                bool success;
+                foreach (var assetHash in assetHashes)
+                {
+                    if (assetHashMap[assetHash] && assetHash.Length == 20)
+                    {
+                        assetBalance = (BigInteger)((DynCall)assetHash.ToDelegate())("balanceOf", new object[] { self });
+                        if (assetBalance > 0)
+                        {
+                            success = (bool)((DynCall)assetHash.ToDelegate())("transfer", new Object[] { self, newContractHash, assetBalance });
+                            assert(success, "upgrade: transfer Nep5 asset from old contract into new contract failed!");
+                        }
+                    }
+                }
+            }
             return true;
         }
 
@@ -341,7 +384,7 @@ namespace Nep5Proxy
         // return [byte[], new offset]
         private static object[] ReadBytes(byte[] buffer, int offset, int count)
         {
-            if (offset + count > buffer.Length) throw new ArgumentOutOfRangeException();
+            assert(offset + count <= buffer.Length, "ReadBytes, offset + count exceeds buffer.Length.");
             return new object[] { buffer.Range(offset, count), offset + count };
         }
 
@@ -356,11 +399,7 @@ namespace Nep5Proxy
 
         private static byte[] WriteUint255(BigInteger value, byte[] source)
         {
-            if (value < 0)
-            {
-                Runtime.Notify("Value out of range of uint255");
-                return source;
-            }
+            assert(value >= 0, "Value out of range of uint255.");
             var v = PadRight(value.ToByteArray(), 32);
             return source.Concat(v); // no need to concat length, fix 32 bytes
         }
@@ -397,7 +436,7 @@ namespace Nep5Proxy
 
         private static byte[] WriteVarBytes(byte[] value, byte[] Source)
         {
-            return WriteVarInt(value.Length, Source).Concat(value); 
+            return WriteVarInt(value.Length, Source).Concat(value);
         }
 
         // add padding zeros on the right
@@ -412,5 +451,16 @@ namespace Nep5Proxy
             }
             return value;
         }
+
+        private static void assert(bool condition, string msg)
+        {
+            if (!condition)
+            {
+                // TODO: uncomment next line on mainnet
+                //throw new InvalidOperationException("transfer: from equals to address.");
+                Runtime.Notify("Nep5Proxy ".AsByteArray().Concat(msg.AsByteArray()).AsString());
+            }
+        }
+
     }
 }
