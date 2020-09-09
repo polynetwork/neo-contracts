@@ -9,7 +9,6 @@ namespace Nep5Proxy
 {
     public class Nep5Proxy : SmartContract
     {
-        // Constants
         // TODO: fill in ccmc script hash
         private static readonly byte[] CCMCScriptHash = "".HexToBytes(); // little endian
         private static readonly byte[] OperatorKey = "ok".AsByteArray();
@@ -20,9 +19,6 @@ namespace Nep5Proxy
 
         // Dynamic Call
         delegate object DynCall(string method, object[] args); // dynamic call
-
-
-
         // Events
         public static event Action<byte[]> InitEvent;
         public static event Action<byte[], byte[]> TransferOwnershipEvent;
@@ -30,15 +26,15 @@ namespace Nep5Proxy
         public static event Action<byte[], byte[], BigInteger> UnlockEvent;
         public static event Action<BigInteger, byte[]> BindProxyHashEvent;
         public static event Action<byte[], BigInteger, byte[]> BindAssetHashEvent;
-
+        
         private static readonly BigInteger chainId = 4;
-
         public static object Main(string method, object[] args)
         {
             if (Runtime.Trigger == TriggerType.Application)
             {
                 byte[] callingScriptHash = ExecutionEngine.CallingScriptHash;
                 if (method == "name") return Name();
+
                 if (method == "init") return Init((byte[])args[0]);
                 if (method == "pause") return Pause();
                 if (method == "unpause") return Unpause();
@@ -53,7 +49,6 @@ namespace Nep5Proxy
                 if (method == "getFromAssetHashes") return GetFromAssetHashes();
                 if (method == "lock") return Lock((byte[])args[0], (byte[])args[1], (BigInteger)args[2], (byte[])args[3], (BigInteger)args[4]);
                 if (method == "unlock") return Unlock((byte[])args[0], (byte[])args[1], (BigInteger)args[2], callingScriptHash);
-
                 if (method == "upgrade")
                 {
                     assert(args.Length == 9, "upgrade: args.Length != 9.");
@@ -76,7 +71,6 @@ namespace Nep5Proxy
 
         [DisplayName("name")]
         public static string Name() => "NeoProxy";
-
         [DisplayName("init")]
         public static bool Init(byte[] _operator)
         {
@@ -231,7 +225,6 @@ namespace Nep5Proxy
             // get the proxy contract on target chain
             var toProxyHash = GetProxyHash(toChainId);
             assert(toProxyHash.Length > 0, "lock: toProxyHash SHOULD not be empty.");
-
             // get the corresbonding asset on to chain
             var toAssetHash = GetAssetHash(fromAssetHash, toChainId);
             assert(toAssetHash.Length > 0, "lock: toAssetHash SHOULD not be empty.");
@@ -269,7 +262,6 @@ namespace Nep5Proxy
                 Runtime.Notify(proxyHash);
                 return false;
             }
-
             assert(!IsPaused(), "lock: proxy is locked");
 
             // parse the args bytes constructed in source chain proxy contract, passed by multi-chain
