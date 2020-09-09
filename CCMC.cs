@@ -1,4 +1,4 @@
-﻿using Neo.SmartContract.Framework;
+using Neo.SmartContract.Framework;
 using Neo.SmartContract.Framework.Services.Neo;
 using Neo.SmartContract.Framework.Services.System;
 using System;
@@ -64,6 +64,14 @@ namespace CrossChainContract
             {
                 return VerifyAndExecuteTxTest((byte[])args[0], (byte[])args[1]);
             }
+            else if (operation == "verifySignList")
+            {
+                return verifySigTest((byte[])args[0], (byte[])args[1]);
+            }
+            else if (operation == "getbookkeepers")
+            {
+                return getBookKeepers();
+            }
             return false;
         }
 
@@ -92,7 +100,7 @@ namespace CrossChainContract
                 }
                 Header currentHeader = deserializHeader(currentRawHeader);
                 StateRootValue = MerkleProve(headerProof, currentHeader.blockRoot);
-                byte[] RawHeaderHash = Sha256(RawHeader);
+                byte[] RawHeaderHash = Hash256(RawHeader);
                 if (!StateRootValue.Equals(RawHeaderHash))
                 {
                     Runtime.Notify("Verify block proof signature failed!");
@@ -157,6 +165,12 @@ namespace CrossChainContract
             Runtime.Notify("proof and root are correct");
 
             return true;
+        }
+
+        public static object getBookKeepers()
+        {
+            byte[][] keepers = (byte[][])Storage.Get(mCKeeperPubKeysPrefix).Deserialize();
+            return keepers;
         }
 
         public static bool CrossChain(BigInteger toChainID, byte[] toChainAddress, byte[] functionName, byte[] args, byte[] caller)
@@ -324,6 +338,33 @@ namespace CrossChainContract
             }
             Runtime.Notify(signed);
             return signed >= m;
+        }
+
+        private static object verifySigTest(byte[] rawHeader, byte[] signList)
+        {
+            byte[] hash = SmartContract.Hash256(rawHeader);
+            Runtime.Notify(hash);
+            int signed = 0;
+            object[] result = new object[5];
+            for (int i = 0; i < signList.Length / MCCHAIN_SIGNATURE_LEN; i++)
+            {
+                byte[] r = (signList.Range(i * MCCHAIN_SIGNATURE_LEN, 32));
+                byte[] s = (signList.Range(i * MCCHAIN_SIGNATURE_LEN + 32, 32));
+                int index = i * MCCHAIN_SIGNATURE_LEN + 64;
+                BigInteger v = signList.Range(index, 1).ToBigInteger();
+                byte[] signer;
+                if (v == 1)
+                {
+                    signer = SmartContract.Sha256(Secp256k1Recover(r, s, false, SmartContract.Sha256(hash)));
+                }
+                else
+                {
+                    signer = SmartContract.Sha256(Secp256k1Recover(r, s, true, SmartContract.Sha256(hash)));
+                }
+                result[i] = signer;
+            }
+            Runtime.Notify(signed);
+            return result;
         }
 
         private static bool containsAddress(object[] keepers, byte[] pubkey)
