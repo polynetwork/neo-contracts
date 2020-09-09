@@ -1,18 +1,15 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Numerics;
 using Neo.SmartContract.Framework;
 using Neo.SmartContract.Framework.Services.Neo;
 using Neo.SmartContract.Framework.Services.System;
 
-[assembly: Features(ContractPropertyState.HasStorage | ContractPropertyState.HasDynamicInvoke | ContractPropertyState.Payable)]
-
 namespace Nep5Proxy
 {
     public class Nep5Proxy : SmartContract
     {
-        // Constants
-        // TODO: fill in ccmc script hash and operator address
+        // TODO: fill in ccmc script hash
         private static readonly byte[] CCMCScriptHash = "".HexToBytes(); // little endian
         private static readonly byte[] OperatorKey = "ok".AsByteArray();
         private static readonly byte[] ProxyHashPrefix = new byte[] { 0x01, 0x01 };
@@ -22,7 +19,6 @@ namespace Nep5Proxy
 
         // Dynamic Call
         delegate object DynCall(string method, object[] args); // dynamic call
-
         // Events
         public static event Action<byte[]> InitEvent;
         public static event Action<byte[], byte[]> TransferOwnershipEvent;
@@ -30,11 +26,15 @@ namespace Nep5Proxy
         public static event Action<byte[], byte[], BigInteger> UnlockEvent;
         public static event Action<BigInteger, byte[]> BindProxyHashEvent;
         public static event Action<byte[], BigInteger, byte[]> BindAssetHashEvent;
-
+        
+        private static readonly BigInteger chainId = 4;
         public static object Main(string method, object[] args)
         {
             if (Runtime.Trigger == TriggerType.Application)
             {
+                byte[] callingScriptHash = ExecutionEngine.CallingScriptHash;
+                if (method == "name") return Name();
+
                 if (method == "init") return Init((byte[])args[0]);
                 if (method == "pause") return Pause();
                 if (method == "unpause") return Unpause();
@@ -48,8 +48,7 @@ namespace Nep5Proxy
                 if (method == "getAssetHash") return GetAssetHash((byte[])args[0], (BigInteger)args[1]);
                 if (method == "getFromAssetHashes") return GetFromAssetHashes();
                 if (method == "lock") return Lock((byte[])args[0], (byte[])args[1], (BigInteger)args[2], (byte[])args[3], (BigInteger)args[4]);
-                if (method == "unlock") return Unlock((byte[])args[0], (byte[])args[1], (BigInteger)args[2]);
-
+                if (method == "unlock") return Unlock((byte[])args[0], (byte[])args[1], (BigInteger)args[2], callingScriptHash);
                 if (method == "upgrade")
                 {
                     assert(args.Length == 9, "upgrade: args.Length != 9.");
@@ -70,6 +69,8 @@ namespace Nep5Proxy
             return false;
         }
 
+        [DisplayName("name")]
+        public static string Name() => "NeoProxy";
         [DisplayName("init")]
         public static bool Init(byte[] _operator)
         {
@@ -122,11 +123,11 @@ namespace Nep5Proxy
         [DisplayName("bindProxyHash")]
         public static bool BindProxyHash(BigInteger toChainId, byte[] toProxyHash)
         {
-            assert(toChainId > 0 && toChainId != 4, "bindProxyHash: toChainId is negative or equal to 4.");
-            assert(toProxyHash.Length > 0, "bindProxyHash: toProxyHash.Length == 0");
+            assert(toChainId > 0 && toChainId != chainId, "bindProxyHash: toChainId is negative or equal to 4.");
+            assert(toProxyHash.Length > 0, "bindProxyHash: toProxyHash.Length == 0!");
             byte[] operator_ = Storage.Get(OperatorKey);
             assert(Runtime.CheckWitness(operator_), "bindProxyHash: CheckWitness failed, ".AsByteArray().Concat(operator_).AsString());
-            Storage.Put(ProxyHashPrefix.Concat(toChainId.AsByteArray()), toProxyHash);
+            Storage.Put(ProxyHashPrefix.Concat(toChainId.ToByteArray()), toProxyHash);
             BindProxyHashEvent(toChainId, toProxyHash);
             return true;
         }
@@ -136,7 +137,7 @@ namespace Nep5Proxy
         public static bool BindAssetHash(byte[] fromAssetHash, BigInteger toChainId, byte[] toAssetHash)
         {
             assert(fromAssetHash.Length == 20, "bindAssetHash: fromAssetHash length != 20.");
-            assert(toChainId > 0 && toChainId != 4, "bindAssetHash: toChainId cannot be negative or equal to 4.");
+            assert(toChainId > 0 && toChainId != chainId, "bindAssetHash: toChainId cannot be negative or equal to 4.");
             assert(toAssetHash.Length == 20, "bindAssetHash: oldAssetHash length != 20.");
 
             byte[] operator_ = Storage.Get(OperatorKey);
@@ -213,6 +214,7 @@ namespace Nep5Proxy
         [DisplayName("lock")]
         public static bool Lock(byte[] fromAssetHash, byte[] fromAddress, BigInteger toChainId, byte[] toAddress, BigInteger amount)
         {
+            assert(fromAddress != ExecutionEngine.ExecutingScriptHash, "lock: fromAddress can't be proxy address.");
             assert(fromAssetHash.Length == 20, "lock: fromAssetHash SHOULD be 20-byte long.");
             assert(fromAddress.Length == 20, "lock: fromAddress SHOULD be 20-byte long.");
             assert(toAddress.Length > 0, "lock: toAddress SHOULD not be empty.");
@@ -223,13 +225,12 @@ namespace Nep5Proxy
             // get the proxy contract on target chain
             var toProxyHash = GetProxyHash(toChainId);
             assert(toProxyHash.Length > 0, "lock: toProxyHash SHOULD not be empty.");
-
             // get the corresbonding asset on to chain
             var toAssetHash = GetAssetHash(fromAssetHash, toChainId);
             assert(toAssetHash.Length > 0, "lock: toAssetHash SHOULD not be empty.");
-
+            var Params = new object[] { fromAddress, ExecutionEngine.ExecutingScriptHash, amount };
             // transfer asset from fromAddress to proxy contract address, use dynamic call to call nep5 token's contract "transfer"
-            bool success = (bool)((DynCall)fromAssetHash.ToDelegate())("transfer", new object[] { fromAddress, ExecutionEngine.ExecutingScriptHash, amount });
+            bool success = (bool)((DynCall)fromAssetHash.ToDelegate())("transfer", Params);
             assert(success, "lock: Failed to transfer NEP5 token to Nep5Proxy.");
 
             // construct args for proxy contract on target chain
@@ -244,16 +245,23 @@ namespace Nep5Proxy
 
         // Methods of actual execution, used to unlock asset from proxy contract
         [DisplayName("unlock")]
-        public static bool Unlock(byte[] inputBytes, byte[] fromProxyContract, BigInteger fromChainId)
+        public static bool Unlock(byte[] inputBytes, byte[] fromProxyContract, BigInteger fromChainId, byte[] callingScriptHash)
         {
             //only allowed to be called by CCMC
-            assert(ExecutionEngine.CallingScriptHash.Equals(CCMCScriptHash), "unlock: Only allowed to be called by CCMC.");
+            assert(callingScriptHash.Equals(CCMCScriptHash), "unlock: Only allowed to be called by CCMC.");
 
-            byte[] proxyHash = Storage.Get(ProxyHashPrefix).Concat(fromChainId.ToByteArray());
+            byte[] proxyHash = Storage.Get(ProxyHashPrefix.Concat(fromChainId.ToByteArray()));
 
             // check the fromContract is stored, so we can trust it
-            assert(proxyHash.Equals(fromProxyContract), "unlock: fromProxyContract Not equal stored proxy hash.");
-
+            //assert(proxyHash.Equals(fromProxyContract), "unlock: fromProxyContract Not equal stored proxy hash.");
+            if (fromProxyContract.AsBigInteger() != proxyHash.AsBigInteger())
+            {
+                Runtime.Notify("From proxy contract not found.");
+                Runtime.Notify(fromProxyContract);
+                Runtime.Notify(fromChainId);
+                Runtime.Notify(proxyHash);
+                return false;
+            }
             assert(!IsPaused(), "lock: proxy is locked");
 
             // parse the args bytes constructed in source chain proxy contract, passed by multi-chain
@@ -265,12 +273,21 @@ namespace Nep5Proxy
             assert(toAddress.Length == 20, "unlock: ToChain Account address SHOULD be 20-byte long.");
             assert(amount >= 0, "ToChain Amount SHOULD not be less than 0.");
 
-
+            /*var Params = new object[] { ExecutionEngine.ExecutingScriptHash, toAddress, amount };
+            var contracthash = ExecutionEngine.ExecutingScriptHash;
+            Runtime.Notify(contracthash);
             // transfer asset from proxy contract to toAddress
-            bool success = (bool)((DynCall)toAssetHash.ToDelegate())("transfer", new object[] { ExecutionEngine.ExecutingScriptHash, toAddress, amount });
-            assert(success, "unlock: Failed to transfer NEP5 token From Nep5Proxy to toAddress.");
+            bool success = (bool)((DynCall)toAssetHash.ToDelegate())("transfer", Params);*/
+            byte[] currentHash = ExecutionEngine.ExecutingScriptHash; // this proxy contract hash
+            var nep5Contract = (DynCall)toAssetHash.ToDelegate();
+            bool success = (bool)nep5Contract("transfer", new object[] { currentHash, toAddress, amount });
+            if (!success)
+            {
+                Runtime.Notify("Failed to transfer NEP5 token to toAddress.");
+                return false;
+            }
+            /*assert(success, "unlock: Failed to transfer NEP5 token From Nep5Proxy to toAddress.");*/
             UnlockEvent(toAssetHash, toAddress, amount);
-
             return true;
         }
 
@@ -279,13 +296,9 @@ namespace Nep5Proxy
         public static bool Upgrade(byte[] newScript, byte[] paramList, byte returnType, ContractPropertyState cps, string name, string version, string author, string email, string description)
         {
             assert(Runtime.CheckWitness(Storage.Get(OperatorKey)), "upgrade: CheckWitness failed!");
-
             byte[] newContractHash = Hash160(newScript);
-
             assert(transferAssetsToNewContract(newContractHash), "upgrade: transfer asset into new contract hash failed!");
-
             Contract newContract = Contract.Migrate(newScript, paramList, returnType, cps, name, version, author, email, description);
-
             Runtime.Notify(new object[] { "upgrade", ExecutionEngine.ExecutingScriptHash, newContractHash });
             return true;
         }
@@ -457,7 +470,7 @@ namespace Nep5Proxy
             if (!condition)
             {
                 // TODO: uncomment next line on mainnet
-                //throw new InvalidOperationException("transfer: from equals to address.");
+                //throw new InvalidOperationException("Unequal result!");
                 Runtime.Notify("Nep5Proxy ".AsByteArray().Concat(msg.AsByteArray()).AsString());
             }
         }
