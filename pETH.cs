@@ -22,7 +22,7 @@ namespace MockNep5
         private static readonly byte[] Owner = "".ToScriptHash(); //Owner Address
         private static readonly byte[] ZERO_ADDRESS = "0000000000000000000000000000000000000000".HexToBytes();
 
-        //private const ulong factor = 100000000; //decided by Decimals()
+        //private const ulong factor = 100000000000000000000000000; //decided by Decimals()
         private static readonly BigInteger total_amount = new BigInteger("000000e4d20cc8dcd2b75200".HexToBytes()); // total token amount, 100000000*10^18
 
         public static object Main(string method, object[] args)
@@ -140,10 +140,10 @@ namespace MockNep5
         public static byte Decimals() => 18;
 
         [DisplayName("name")]
-        public static string Name() => "ETH_NEP5"; //name of the token
+        public static string Name() => "pETH NEP5"; //name of the token
 
         [DisplayName("symbol")]
-        public static string Symbol() => "ETHX"; //symbol of the token
+        public static string Symbol() => "pETH"; //symbol of the token
 
         [DisplayName("totalSupply")]
         public static BigInteger TotalSupply()
