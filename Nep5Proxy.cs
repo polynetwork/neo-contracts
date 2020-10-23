@@ -470,8 +470,8 @@ namespace Nep5Proxy
             if (!condition)
             {
                 // TODO: uncomment next line on mainnet
-                //throw new InvalidOperationException("Unequal result!");
                 Runtime.Notify("Nep5Proxy ".AsByteArray().Concat(msg.AsByteArray()).AsString());
+                throw new InvalidOperationException("Unequal result!");
             }
         }
 
